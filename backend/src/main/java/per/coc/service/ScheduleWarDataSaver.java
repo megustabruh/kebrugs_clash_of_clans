@@ -35,9 +35,10 @@ public class ScheduleWarDataSaver {
     
     private static final String CLAN_TAG = "#2R08P0L9";
     private static final String CLAN_TAG_ENCODED = "%232R08P0L9";
+    private static final long ONE_HOUR_MS = 60 * 60 * 1000;
     
-    // Track war end time to detect changes
-    private Instant lastKnownWarEndTime = null;
+    // Track last data fetch time for hourly scheduling
+    private Instant lastDataFetchTime = null;
     
     @Value("${coc.api.token}")
     private String token;
@@ -96,26 +97,26 @@ public class ScheduleWarDataSaver {
 
     @PostConstruct
     public void onStartup() {
-        LOGGER.info("Service started. Will check war status every 10 minutes.");
-        checkAndFetchWarData();
+        LOGGER.info("Service started. Checks every 5 mins, fetches hourly (or every 5 mins in last hour of war).");
+        checkAndFetchWarData(true); // Force fetch on startup
     }
 
     /**
-     * Checks war status every 10 minutes.
-     * Only fetches data if:
-     * - Currently in war (state = "inWar")
-     * - Within last 6 hours of war OR within 5 minutes of war end
+     * Checks war status every 5 minutes.
+     * Fetches data:
+     * - Every hour during normal war
+     * - Every 5 minutes in last hour of war
      */
-    @Scheduled(fixedRate = 600000) // Check every 10 minutes
+    @Scheduled(fixedRate = 300000) // Check every 5 minutes
     public void scheduledWarCheck() {
         try {
-            checkAndFetchWarData();
+            checkAndFetchWarData(false);
         } catch (Exception e) {
             LOGGER.warning("Scheduled war check failed: " + e.getMessage());
         }
     }
 
-    private void checkAndFetchWarData() {
+    private void checkAndFetchWarData(boolean forceFetch) {
         LOGGER.info("Checking war status...");
         
         // Reset counters for this run
@@ -193,22 +194,32 @@ public class ScheduleWarDataSaver {
         Instant now = Instant.now();
         long timeUntilEnd = warEndTime.toEpochMilli() - now.toEpochMilli();
         
-        // Check if war end time changed
-        if (lastKnownWarEndTime != null && !lastKnownWarEndTime.equals(warEndTime)) {
-            LOGGER.info("War end time changed from " + lastKnownWarEndTime + " to " + warEndTime);
-        }
-        lastKnownWarEndTime = warEndTime;
-        
         long hoursRemaining = timeUntilEnd / (1000 * 60 * 60);
         long minutesRemaining = (timeUntilEnd / (1000 * 60)) % 60;
         LOGGER.info("War in progress. Time remaining: " + hoursRemaining + "h " + minutesRemaining + "m");
         
-        // Fetch data every 10 minutes during war
-        LOGGER.info("Fetching war data...");
+        // Determine if we should fetch data
+        boolean inLastHour = timeUntilEnd <= ONE_HOUR_MS;
+        boolean hourSinceLastFetch = lastDataFetchTime == null || 
+                (now.toEpochMilli() - lastDataFetchTime.toEpochMilli()) >= ONE_HOUR_MS;
+        
+        if (!forceFetch && !inLastHour && !hourSinceLastFetch) {
+            LOGGER.info("Skipping fetch - not in last hour and less than 1 hour since last fetch.");
+            return;
+        }
+        
+        // Fetch war data
+        String reason = inLastHour ? "Last hour of war" : "Hourly fetch";
+        LOGGER.info(reason + " - Fetching war data...");
         currentWarType = "NORMAL";
         currentWarState = "inWar";
         processNormalWar(warJson);
-        saveFetchLog(runTime, "Normal war data fetched. Time remaining: " + hoursRemaining + "h " + minutesRemaining + "m", true);
+        lastDataFetchTime = now;
+        saveFetchLog(runTime, reason + ". Time remaining: " + hoursRemaining + "h " + minutesRemaining + "m", true);
+    }
+    
+    private void resetWarTracking() {
+        lastDataFetchTime = null;
     }
     
     private void saveFetchLog(LocalDateTime runTime, String message, boolean success) {
@@ -216,14 +227,9 @@ public class ScheduleWarDataSaver {
             FetchLog log = new FetchLog(runTime, currentWarType, currentWarState, currentWarTag,
                     currentRunAttacks, currentRunPlayers, currentRunWars, message, success);
             fetchLogRepository.save(log);
-            LOGGER.info("Fetch log saved: " + message);
         } catch (Exception e) {
             LOGGER.warning("Failed to save fetch log: " + e.getMessage());
         }
-    }
-    
-    private void resetWarTracking() {
-        lastKnownWarEndTime = null;
     }
     
     private void processCWL(String clanWarLeagueDetails) {
@@ -248,8 +254,6 @@ public class ScheduleWarDataSaver {
                 processCWLWar(i, warTags, j);
             }
         }
-        
-        LOGGER.info("CWL data fetch completed!");
     }
     
     private void processCWLWar(int roundIndex, JSONArray warTags, int warIndex) {
@@ -312,10 +316,8 @@ public class ScheduleWarDataSaver {
         }
 
         if (newPlayersCount > 0) {
-            LOGGER.info("Saved " + newPlayersCount + " new players to database.");
+            LOGGER.info("Saved " + newPlayersCount + " new players.");
             currentRunPlayers += newPlayersCount;
-        } else {
-            LOGGER.info("No new players to save.");
         }
     }
 
@@ -355,7 +357,6 @@ public class ScheduleWarDataSaver {
             int newAttacksCount = 0;
             if (ourClan.has("members")) {
                 JSONArray members = ourClan.getJSONArray("members");
-                LOGGER.info("Processing " + members.length() + " members for warTag: " + warTag);
                 for (int k = 0; k < members.length(); k++) {
                     JSONObject member = members.getJSONObject(k);
                     String memberTag = member.getString("tag");
@@ -367,13 +368,11 @@ public class ScheduleWarDataSaver {
                         Player player = new Player(memberTag, memberName, townHallLevel, new Date(), Status.ACTIVE);
                         playerService.savePlayer(player);
                         newPlayersCount++;
-                        LOGGER.info("Saved new player: " + memberName + " (" + memberTag + ")");
                     }
                     
                     // Save attacks
                     if (member.has("attacks")) {
                         JSONArray memberAttacks = member.getJSONArray("attacks");
-                        LOGGER.info("Member " + memberName + " has " + memberAttacks.length() + " attack(s)");
                         for (int l = 0; l < memberAttacks.length(); l++) {
                             JSONObject attack = memberAttacks.getJSONObject(l);
                             if (storeAttackData(warTag, memberTag, attack)) {
@@ -382,34 +381,26 @@ public class ScheduleWarDataSaver {
                         }
                     }
                 }
-            } else {
-                LOGGER.warning("No members found in clan data for warTag: " + warTag);
             }
             
             if (newPlayersCount > 0) {
-                LOGGER.info("Saved " + newPlayersCount + " new players from war.");
+                LOGGER.info("Saved " + newPlayersCount + " new players.");
                 currentRunPlayers += newPlayersCount;
             }
 
             if (newAttacksCount > 0) {
-                LOGGER.info("Round " + (i + 1) + " warTag: " + warTag + " - Saved " + newAttacksCount + " new attacks. Stars: " + stars + ", Destruction: " + destruction);
+                LOGGER.info("Saved " + newAttacksCount + " new attacks. Stars: " + stars + ", Destruction: " + destruction);
                 currentRunAttacks += newAttacksCount;
-            } else {
-                LOGGER.info("Round " + (i + 1) + " warTag: " + warTag + " - No new attacks. Stars: " + stars + ", Destruction: " + destruction);
             }
         }
     }
 
     private boolean storeAttackData(String warTag, String attackerTag, JSONObject attack) {
         String defenderTag = attack.optString("defenderTag", "");
-        LOGGER.info("Checking attack: attacker=" + attackerTag + ", defender=" + defenderTag + ", warTag=" + warTag);
-        boolean exists = attackService.attackExists(attackerTag, warTag, defenderTag);
-        LOGGER.info("Attack exists in DB: " + exists);
-        if (!exists) {
+        if (!attackService.attackExists(attackerTag, warTag, defenderTag)) {
             Attack atk = new Attack(attackerTag, attack.optInt("destructionPercentage", 0), attack.optInt("stars", 0),
                     attack.optInt("mapPosition"), attack.optInt("townhallLevel"), warTag, defenderTag);
             attackService.saveAttack(atk);
-            LOGGER.info("Saved attack: " + attackerTag + " -> " + defenderTag);
             return true;
         }
         return false;
