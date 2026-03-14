@@ -4,6 +4,8 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Column;
+import org.hibernate.annotations.CreationTimestamp;
+import java.util.Date;
 
 @Entity
 @Table(name = "attacks")
@@ -21,9 +23,12 @@ public class Attack {
     private int mapPosition;
     private int townHallLevel;
 
-    // make wartag as akey, not unique or primary
-    @Column(length = 20)
+    @Column(length = 50)
     private String warTag;
+
+    @CreationTimestamp
+    @Column(updatable = false)
+    private Date createdOn;
 
     // Constructors
     public Attack() {
@@ -87,5 +92,9 @@ public class Attack {
 
     public void setWarTag(String warTag) {
         this.warTag = warTag;
+    }
+
+    public Date getCreatedOn() {
+        return createdOn;
     }
 }

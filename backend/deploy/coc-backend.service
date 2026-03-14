@@ -1,0 +1,20 @@
+[Unit]
+Description=Clash of Clans Backend Service
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/opt/coc-backend
+EnvironmentFile=/opt/coc-backend/.env
+ExecStart=/usr/bin/java -jar /opt/coc-backend/clash-of-clans-backend-1.0.0.jar
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=coc-backend
+
+[Install]
+WantedBy=multi-user.target

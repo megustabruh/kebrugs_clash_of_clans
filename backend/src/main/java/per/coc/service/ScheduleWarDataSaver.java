@@ -14,57 +14,40 @@ import java.util.logging.*;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.springframework.boot.SpringApplication;
-import org.springframework.context.ApplicationContext;
-import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
 
-import per.coc.PlayerAppApplication;
+import jakarta.annotation.PostConstruct;
 import per.coc.entity.Attack;
 import per.coc.entity.Player;
 import per.coc.entity.War;
 import per.coc.model.Clan;
 import per.coc.model.Status;
 
+@Service
 public class ScheduleWarDataSaver {
 
-    // #2R08P0L9
-    public static Logger LOGGER = Logger.getLogger(ScheduleWarDataSaver.class.getName());
-    public static String token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjBkYzE0Nzc0LWRlNjQtNDk5Yy1iNzA2LTdhNzg2MmI4ZGZjZSIsImlhdCI6MTc3MzQ3MDU3MCwic3ViIjoiZGV2ZWxvcGVyLzkzM2UwN2IwLWMzYmItNWY2Zi1iYjRiLWZmZjYzMzI4NzZkNyIsInNjb3BlcyI6WyJjbGFzaCJdLCJsaW1pdHMiOlt7InRpZXIiOiJkZXZlbG9wZXIvc2lsdmVyIiwidHlwZSI6InRocm90dGxpbmcifSx7ImNpZHJzIjpbIjQ5LjM3LjE4MC4xNzEiXSwidHlwZSI6ImNsaWVudCJ9XX0.NqPkZk8kde_KuqzRxEiYcUika9H9Zkte_Gnb-rKlAxaaz1bE0nXiebzIqMUdRjXy-6zl_3jLd9FF6d33zbrLag";
+    private static final Logger LOGGER = Logger.getLogger(ScheduleWarDataSaver.class.getName());
+    
+    private static final String CLAN_TAG = "#2R08P0L9";
+    private static final String CLAN_TAG_ENCODED = "%232R08P0L9";
+    
+    @Value("${coc.api.token}")
+    private String token;
+    
+    @Autowired
+    private PlayerService playerService;
+    
+    @Autowired
+    private WarService warService;
+    
+    @Autowired
+    private AttackService attackService;
 
-    // public static String fetchClanWarLeagueInfo() {
-    // try {
-    // String endpoint =
-    // "https://api.clashofclans.com/v1/clans/%232R08P0L9/currentwar/leaguegroup";
-    // URL url = new URL(endpoint);
-    // HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-    // connection.setRequestMethod("GET");
-    // connection.setRequestProperty("Authorization", "Bearer " + token);
-    // connection.setRequestProperty("Content-Type", "application/json");
-    // if (connection.getResponseCode() == 200) {
-    // BufferedReader reader = new BufferedReader(new
-    // InputStreamReader(connection.getInputStream()));
-    // StringBuilder response = new StringBuilder();
-    // String line;
-    // while ((line = reader.readLine()) != null) {
-    // response.append(line);
-    // }
-    // reader.close();
-    // return response.toString();
-    // } else {
-    // LOGGER.info("Error: " + connection.getResponseCode() + " - " +
-    // connection.getResponseMessage());
-    // return null;
-    // }
-    // } catch (IOException e) {
-    // e.printStackTrace();
-    // return null;
-    // }
-    // }
-
-    public static String fetchDataFromClashAPI(String endpoint) {
+    private String fetchDataFromClashAPI(String endpoint) {
         try {
-            // String endpoint =
-            // "https://api.clashofclans.com/v1/clans/%232R08P0L9/currentwar/leaguegroup";
             URL url = new URL(endpoint);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
@@ -89,26 +72,44 @@ public class ScheduleWarDataSaver {
         }
     }
 
-    public static void main(String[] args) {
-        run(args);
+    /**
+     * Runs on startup and then every hour to fetch and save new war data.
+     */
+    @PostConstruct
+    public void onStartup() {
+        LOGGER.info("Running initial data fetch on startup...");
+        try {
+            fetchAndSaveWarData();
+        } catch (Exception e) {
+            LOGGER.warning("Initial data fetch failed: " + e.getMessage());
+        }
     }
 
-    public static void run(String[] args) {
-        ApplicationContext context = SpringApplication.run(PlayerAppApplication.class, args);
+    @Scheduled(fixedRate = 3600000, initialDelay = 3600000) // Run every hour, starting 1 hour after startup
+    public void scheduledFetch() {
+        LOGGER.info("Scheduled hourly data fetch started...");
+        try {
+            fetchAndSaveWarData();
+        } catch (Exception e) {
+            LOGGER.warning("Scheduled data fetch failed: " + e.getMessage());
+        }
+    }
 
+    public void fetchAndSaveWarData() {
         LOGGER.setLevel(Level.INFO);
         LOGGER.info("Starting clan data fetch...");
 
-        String warType = "CWL";
         String clanWarLeagueDetails = fetchDataFromClashAPI(
-                "https://api.clashofclans.com/v1/clans/%232R08P0L9/currentwar/leaguegroup");
+                "https://api.clashofclans.com/v1/clans/" + CLAN_TAG_ENCODED + "/currentwar/leaguegroup");
+        
         if (clanWarLeagueDetails == null) {
-            warType = "normal";
-            clanWarLeagueDetails = fetchDataFromClashAPI(
-                    "https://api.clashofclans.com/v1/clans/%232R08P0L9/currentwar");
-            JSONObject allJsonObject = new JSONObject(clanWarLeagueDetails);
-            // storePlayers(clan, clanJson, context);
-            // getWarDetailResponse(i, warTags, j, context);
+            // Try normal war
+            String normalWarDetails = fetchDataFromClashAPI(
+                    "https://api.clashofclans.com/v1/clans/" + CLAN_TAG_ENCODED + "/currentwar");
+            if (normalWarDetails != null) {
+                JSONObject warJson = new JSONObject(normalWarDetails);
+                processNormalWar(warJson);
+            }
         } else {
             JSONObject allJsonObject = new JSONObject(clanWarLeagueDetails);
             JSONArray clansJson = allJsonObject.getJSONArray("clans");
@@ -116,11 +117,11 @@ public class ScheduleWarDataSaver {
 
             for (int i = 0; i < clansJson.length(); i++) {
                 JSONObject clanJson = clansJson.getJSONObject(i);
-                if (!clanJson.getString("tag").equals("#2R08P0L9")) {
+                if (!clanJson.getString("tag").equals(CLAN_TAG)) {
                     continue;
                 }
                 clan = new Clan(clanJson.getString("tag"), clanJson.getString("name"), clanJson.getInt("clanLevel"));
-                storePlayers(clan, clanJson, context);
+                storePlayers(clan, clanJson);
             }
 
             JSONArray rounds = allJsonObject.getJSONArray("rounds");
@@ -128,17 +129,32 @@ public class ScheduleWarDataSaver {
                 JSONObject round = rounds.getJSONObject(i);
                 JSONArray warTags = round.getJSONArray("warTags");
                 for (int j = 0; j < warTags.length(); j++) {
-                    getWarDetailResponse(i, warTags, j, context);
+                    getWarDetailResponse(i, warTags, j);
                 }
             }
         }
 
-        LOGGER.info("War data saved to database!");
+        LOGGER.info("War data fetch completed!");
     }
 
-    private static void storePlayers(Clan clan, JSONObject clanJson, ApplicationContext context) {
+    private void processNormalWar(JSONObject warJson) {
+        String state = warJson.optString("state", "");
+        if (state.equals("notInWar")) {
+            LOGGER.info("Clan is not currently in a war.");
+            return;
+        }
+        
+        String startTimeStr = warJson.optString("preparationStartTime", "");
+        String warTag = "NW-" + startTimeStr;
+        
+        storeWarData(0, warTag, warJson);
+    }
+
+    private void storePlayers(Clan clan, JSONObject clanJson) {
         JSONArray membersJson = clanJson.getJSONArray("members");
         List<Player> players = new ArrayList<>();
+        int newPlayersCount = 0;
+        
         for (int j = 0; j < membersJson.length(); j++) {
             JSONObject memberJson = membersJson.getJSONObject(j);
             Player player = new Player(memberJson.getString("tag"), memberJson.getString("name"),
@@ -148,26 +164,22 @@ public class ScheduleWarDataSaver {
         clan.setPlayers(players);
 
         if (clan != null && clan.getPlayers() != null) {
-            storePlayerData(clan.getPlayers(), context);
-        }
-
-        LOGGER.info("Player data saved to database!");
-    }
-
-    private static void storePlayerData(List<Player> players, ApplicationContext context) {
-        PlayerService playerService = context.getBean(PlayerService.class);
-        for (Player player : players) {
-            boolean exists = playerService.playerExists(player.getTag());
-            if (!exists) {
-                // System.out.println("Saving player: " + player.getName());
-                playerService.savePlayer(player);
-            } else {
-                // System.out.println("Player already exists: " + player.getName());
+            for (Player player : players) {
+                if (!playerService.playerExists(player.getTag())) {
+                    playerService.savePlayer(player);
+                    newPlayersCount++;
+                }
             }
         }
+
+        if (newPlayersCount > 0) {
+            LOGGER.info("Saved " + newPlayersCount + " new players to database.");
+        } else {
+            LOGGER.info("No new players to save.");
+        }
     }
 
-    private static void getWarDetailResponse(int i, JSONArray warTags, int j, ApplicationContext context) {
+    private void getWarDetailResponse(int i, JSONArray warTags, int j) {
         String warTag = warTags.getString(j);
         if (warTag.equals("#0"))
             return;
@@ -176,49 +188,41 @@ public class ScheduleWarDataSaver {
         String warDetailResponse = fetchDataFromClashAPI(warDetailEndpoint);
         if (warDetailResponse != null) {
             JSONObject warDetail = new JSONObject(warDetailResponse);
-            storeWarData(i, context, warTag, warDetail);
+            storeWarData(i, warTag, warDetail);
         } else {
             LOGGER.warning("Failed to fetch war details for tag: " + warTag);
         }
     }
 
-    private static void storeWarData(int i, ApplicationContext context, String warTag, JSONObject warDetail) {
-        // Check if our clan is in this war
+    private void storeWarData(int i, String warTag, JSONObject warDetail) {
         String clanTag1 = warDetail.getJSONObject("clan").getString("tag");
         String clanTag2 = warDetail.getJSONObject("opponent").getString("tag");
-        boolean isOurClanFirst = clanTag1.equals("#2R08P0L9");
-        if (isOurClanFirst || clanTag2.equals("#2R08P0L9")) {
+        boolean isOurClanFirst = clanTag1.equals(CLAN_TAG);
+        if (isOurClanFirst || clanTag2.equals(CLAN_TAG)) {
             JSONObject ourClan = isOurClanFirst ? warDetail.getJSONObject("clan")
                     : warDetail.getJSONObject("opponent");
-            JSONObject enemyClan = isOurClanFirst ? warDetail.getJSONObject("opponent")
-                    : warDetail.getJSONObject("clan");
             int stars = ourClan.optInt("stars", -1);
             int destruction = ourClan.optInt("destructionPercentage", -1);
-            int attacks = ourClan.optInt("attacks", 0);
-            String state = warDetail.optString("state", "");
-            Date now = new Date();
 
-            // Save war details
-            String startTimeStr = warDetail.optString("startTime", "");
-            String endTimeStr = warDetail.optString("endTime", "");
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSSX");
-            Date startTime = startTimeStr.isEmpty() ? null
-                    : Date.from(OffsetDateTime.parse(startTimeStr, formatter).toInstant());
-            Date endTime = endTimeStr.isEmpty() ? null
-                    : Date.from(OffsetDateTime.parse(endTimeStr, formatter).toInstant());
-            int totalAttacks = ourClan.optInt("attacks", 0);
-            double averageDestruction = ourClan.optDouble("destructionPercentage", 0.0);
-            int totalStars = ourClan.optInt("stars", 0);
-            int clanLevel = ourClan.optInt("clanLevel", 0);
-
-            War war = new War(warTag, startTime, endTime, totalAttacks, averageDestruction, totalStars, clanLevel);
-            war.setWarTag(warTag);
-            WarService warService = context.getBean(WarService.class);
             if (!warService.warExists(warTag)) {
+                String startTimeStr = warDetail.optString("startTime", "");
+                String endTimeStr = warDetail.optString("endTime", "");
+                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSSX");
+                Date startTime = startTimeStr.isEmpty() ? null
+                        : Date.from(OffsetDateTime.parse(startTimeStr, formatter).toInstant());
+                Date endTime = endTimeStr.isEmpty() ? null
+                        : Date.from(OffsetDateTime.parse(endTimeStr, formatter).toInstant());
+                int totalAttacks = ourClan.optInt("attacks", 0);
+                double averageDestruction = ourClan.optDouble("destructionPercentage", 0.0);
+                int totalStars = ourClan.optInt("stars", 0);
+                int clanLevel = ourClan.optInt("clanLevel", 0);
+
+                War war = new War(warTag, startTime, endTime, totalAttacks, averageDestruction, totalStars, clanLevel);
                 warService.saveWar(war);
+                LOGGER.info("Saved new war: " + warTag);
             }
 
-            // Save attack details
+            int newAttacksCount = 0;
             if (ourClan.has("members")) {
                 JSONArray members = ourClan.getJSONArray("members");
                 for (int k = 0; k < members.length(); k++) {
@@ -228,25 +232,30 @@ public class ScheduleWarDataSaver {
                         JSONArray memberAttacks = member.getJSONArray("attacks");
                         for (int l = 0; l < memberAttacks.length(); l++) {
                             JSONObject attack = memberAttacks.getJSONObject(l);
-                            storeAttackData(context, warTag, attackerTag, attack);
+                            if (storeAttackData(warTag, attackerTag, attack)) {
+                                newAttacksCount++;
+                            }
                         }
                     }
                 }
             }
 
-            LOGGER.info("Round " + (i + 1) + " warTag: " + warTag + " - Stars: " + stars + ", Destruction: "
-                    + destruction);
+            if (newAttacksCount > 0) {
+                LOGGER.info("Round " + (i + 1) + " warTag: " + warTag + " - Saved " + newAttacksCount + " new attacks. Stars: " + stars + ", Destruction: " + destruction);
+            } else {
+                LOGGER.info("Round " + (i + 1) + " warTag: " + warTag + " - No new attacks. Stars: " + stars + ", Destruction: " + destruction);
+            }
         }
     }
 
-    private static void storeAttackData(ApplicationContext context, String warTag, String attackerTag,
-            JSONObject attack) {
-        Attack atk = new Attack(attackerTag, attack.optInt("destructionPercentage", 0), attack.optInt("stars", 0),
-                attack.optInt("mapPosition"), attack.optInt("townhallLevel"), warTag);
-        AttackService attackService = context.getBean(AttackService.class);
+    private boolean storeAttackData(String warTag, String attackerTag, JSONObject attack) {
         if (!attackService.attackExists(attackerTag, warTag)) {
+            Attack atk = new Attack(attackerTag, attack.optInt("destructionPercentage", 0), attack.optInt("stars", 0),
+                    attack.optInt("mapPosition"), attack.optInt("townhallLevel"), warTag);
             attackService.saveAttack(atk);
+            return true;
         }
+        return false;
     }
 
 }

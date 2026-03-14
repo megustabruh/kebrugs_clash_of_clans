@@ -2,15 +2,14 @@ package per.coc;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-
-import per.coc.service.ScheduleWarDataSaver;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
+@EnableScheduling
 public class PlayerAppApplication {
 
     public static void main(String[] args) {
-        // SpringApplication.run(PlayerAppApplication.class, args);
-        ScheduleWarDataSaver.run(args);
+        SpringApplication.run(PlayerAppApplication.class, args);
     }
 
 }

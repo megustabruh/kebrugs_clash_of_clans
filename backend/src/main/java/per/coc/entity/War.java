@@ -12,7 +12,7 @@ import java.util.Date;
 public class War {
 
     @Id
-    @Column(length = 20)
+    @Column(length = 50)
     private String warTag;
 
     private Date startTime;
