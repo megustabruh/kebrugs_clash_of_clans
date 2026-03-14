@@ -24,7 +24,7 @@ public class AttackServiceImpl implements AttackService {
     }
 
     @Override
-    public boolean attackExists(String attackerTag, String warTag) {
-        return attackRepository.existsByAttackerTagAndWarTag(attackerTag, warTag);
+    public boolean attackExists(String attackerTag, String warTag, String defenderTag) {
+        return attackRepository.existsByAttackerTagAndWarTagAndDefenderTag(attackerTag, warTag, defenderTag);
     }
 }

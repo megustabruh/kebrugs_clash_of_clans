@@ -63,6 +63,10 @@ public class ScheduleWarDataSaver {
     private String currentWarTag = "";
 
     private String fetchDataFromClashAPI(String endpoint) {
+        return fetchDataFromClashAPI(endpoint, true);
+    }
+    
+    private String fetchDataFromClashAPI(String endpoint, boolean logErrors) {
         try {
             URL url = new URL(endpoint);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -79,7 +83,9 @@ public class ScheduleWarDataSaver {
                 reader.close();
                 return response.toString();
             } else {
-                LOGGER.info("Error: " + connection.getResponseCode() + " - " + connection.getResponseMessage());
+                if (logErrors) {
+                    LOGGER.info("Error: " + connection.getResponseCode() + " - " + connection.getResponseMessage());
+                }
                 return null;
             }
         } catch (IOException e) {
@@ -121,9 +127,9 @@ public class ScheduleWarDataSaver {
         currentWarTag = "";
         LocalDateTime runTime = LocalDateTime.now();
         
-        // First try CWL
+        // First try CWL (404 is expected if not in CWL)
         String clanWarLeagueDetails = fetchDataFromClashAPI(
-                "https://api.clashofclans.com/v1/clans/" + CLAN_TAG_ENCODED + "/currentwar/leaguegroup");
+                "https://api.clashofclans.com/v1/clans/" + CLAN_TAG_ENCODED + "/currentwar/leaguegroup", false);
         
         if (clanWarLeagueDetails != null) {
             // CWL is active - process it
@@ -344,22 +350,45 @@ public class ScheduleWarDataSaver {
             
             currentWarTag = warTag;
 
+            // Save players from war members
+            int newPlayersCount = 0;
             int newAttacksCount = 0;
             if (ourClan.has("members")) {
                 JSONArray members = ourClan.getJSONArray("members");
+                LOGGER.info("Processing " + members.length() + " members for warTag: " + warTag);
                 for (int k = 0; k < members.length(); k++) {
                     JSONObject member = members.getJSONObject(k);
-                    String attackerTag = member.getString("tag");
+                    String memberTag = member.getString("tag");
+                    String memberName = member.optString("name", "Unknown");
+                    int townHallLevel = member.optInt("townhallLevel", 0);
+                    
+                    // Save player if not exists
+                    if (!playerService.playerExists(memberTag)) {
+                        Player player = new Player(memberTag, memberName, townHallLevel, new Date(), Status.ACTIVE);
+                        playerService.savePlayer(player);
+                        newPlayersCount++;
+                        LOGGER.info("Saved new player: " + memberName + " (" + memberTag + ")");
+                    }
+                    
+                    // Save attacks
                     if (member.has("attacks")) {
                         JSONArray memberAttacks = member.getJSONArray("attacks");
+                        LOGGER.info("Member " + memberName + " has " + memberAttacks.length() + " attack(s)");
                         for (int l = 0; l < memberAttacks.length(); l++) {
                             JSONObject attack = memberAttacks.getJSONObject(l);
-                            if (storeAttackData(warTag, attackerTag, attack)) {
+                            if (storeAttackData(warTag, memberTag, attack)) {
                                 newAttacksCount++;
                             }
                         }
                     }
                 }
+            } else {
+                LOGGER.warning("No members found in clan data for warTag: " + warTag);
+            }
+            
+            if (newPlayersCount > 0) {
+                LOGGER.info("Saved " + newPlayersCount + " new players from war.");
+                currentRunPlayers += newPlayersCount;
             }
 
             if (newAttacksCount > 0) {
@@ -372,10 +401,15 @@ public class ScheduleWarDataSaver {
     }
 
     private boolean storeAttackData(String warTag, String attackerTag, JSONObject attack) {
-        if (!attackService.attackExists(attackerTag, warTag)) {
+        String defenderTag = attack.optString("defenderTag", "");
+        LOGGER.info("Checking attack: attacker=" + attackerTag + ", defender=" + defenderTag + ", warTag=" + warTag);
+        boolean exists = attackService.attackExists(attackerTag, warTag, defenderTag);
+        LOGGER.info("Attack exists in DB: " + exists);
+        if (!exists) {
             Attack atk = new Attack(attackerTag, attack.optInt("destructionPercentage", 0), attack.optInt("stars", 0),
-                    attack.optInt("mapPosition"), attack.optInt("townhallLevel"), warTag);
+                    attack.optInt("mapPosition"), attack.optInt("townhallLevel"), warTag, defenderTag);
             attackService.saveAttack(atk);
+            LOGGER.info("Saved attack: " + attackerTag + " -> " + defenderTag);
             return true;
         }
         return false;

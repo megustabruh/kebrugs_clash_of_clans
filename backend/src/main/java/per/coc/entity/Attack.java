@@ -25,6 +25,9 @@ public class Attack {
 
     @Column(length = 50)
     private String warTag;
+    
+    @Column(length = 20)
+    private String defenderTag;
 
     @CreationTimestamp
     @Column(updatable = false)
@@ -35,13 +38,22 @@ public class Attack {
     }
 
     public Attack(String attackerTag, int destructionPercentage, int stars, int mapPosition, int townHallLevel,
-            String warTag) {
+            String warTag, String defenderTag) {
         this.attackerTag = attackerTag;
         this.destructionPercentage = destructionPercentage;
         this.stars = stars;
         this.mapPosition = mapPosition;
         this.townHallLevel = townHallLevel;
         this.warTag = warTag;
+        this.defenderTag = defenderTag;
+    }
+    
+    public String getDefenderTag() {
+        return defenderTag;
+    }
+    
+    public void setDefenderTag(String defenderTag) {
+        this.defenderTag = defenderTag;
     }
 
     // Getters and setters

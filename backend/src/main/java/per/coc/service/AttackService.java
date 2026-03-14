@@ -9,6 +9,6 @@ public interface AttackService {
 
     List<Attack> getAllAttacks();
     
-    boolean attackExists(String attackerTag, String warTag);
+    boolean attackExists(String attackerTag, String warTag, String defenderTag);
     
 }
