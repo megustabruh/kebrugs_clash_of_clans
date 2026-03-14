@@ -33,6 +33,12 @@ public class ScheduleWarDataSaver {
     
     private static final String CLAN_TAG = "#2R08P0L9";
     private static final String CLAN_TAG_ENCODED = "%232R08P0L9";
+    private static final long SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+    private static final long FIVE_MINUTES_MS = 5 * 60 * 1000;
+    
+    // Track war end time to detect changes
+    private Instant lastKnownWarEndTime = null;
+    private boolean finalFetchDone = false;
     
     @Value("${coc.api.token}")
     private String token;
@@ -72,69 +78,184 @@ public class ScheduleWarDataSaver {
         }
     }
 
-    /**
-     * Runs on startup and then every hour to fetch and save new war data.
-     */
     @PostConstruct
     public void onStartup() {
-        LOGGER.info("Running initial data fetch on startup...");
+        LOGGER.info("Service started. Will check war status every 10 minutes.");
+        checkAndFetchWarData();
+    }
+
+    /**
+     * Checks war status every 10 minutes.
+     * Only fetches data if:
+     * - Currently in war (state = "inWar")
+     * - Within last 6 hours of war OR within 5 minutes of war end
+     */
+    @Scheduled(fixedRate = 600000) // Check every 10 minutes
+    public void scheduledWarCheck() {
         try {
-            fetchAndSaveWarData();
+            checkAndFetchWarData();
         } catch (Exception e) {
-            LOGGER.warning("Initial data fetch failed: " + e.getMessage());
+            LOGGER.warning("Scheduled war check failed: " + e.getMessage());
         }
     }
 
-    @Scheduled(fixedRate = 3600000, initialDelay = 3600000) // Run every hour, starting 1 hour after startup
-    public void scheduledFetch() {
-        LOGGER.info("Scheduled hourly data fetch started...");
-        try {
-            fetchAndSaveWarData();
-        } catch (Exception e) {
-            LOGGER.warning("Scheduled data fetch failed: " + e.getMessage());
-        }
-    }
-
-    public void fetchAndSaveWarData() {
-        LOGGER.setLevel(Level.INFO);
-        LOGGER.info("Starting clan data fetch...");
-
+    private void checkAndFetchWarData() {
+        LOGGER.info("Checking war status...");
+        
+        // First try CWL
         String clanWarLeagueDetails = fetchDataFromClashAPI(
                 "https://api.clashofclans.com/v1/clans/" + CLAN_TAG_ENCODED + "/currentwar/leaguegroup");
         
-        if (clanWarLeagueDetails == null) {
-            // Try normal war
-            String normalWarDetails = fetchDataFromClashAPI(
-                    "https://api.clashofclans.com/v1/clans/" + CLAN_TAG_ENCODED + "/currentwar");
-            if (normalWarDetails != null) {
-                JSONObject warJson = new JSONObject(normalWarDetails);
-                processNormalWar(warJson);
-            }
-        } else {
-            JSONObject allJsonObject = new JSONObject(clanWarLeagueDetails);
-            JSONArray clansJson = allJsonObject.getJSONArray("clans");
-            Clan clan = null;
+        if (clanWarLeagueDetails != null) {
+            // CWL is active - process it
+            LOGGER.info("CWL detected, processing...");
+            processCWL(clanWarLeagueDetails);
+            return;
+        }
+        
+        // Try normal war
+        String normalWarDetails = fetchDataFromClashAPI(
+                "https://api.clashofclans.com/v1/clans/" + CLAN_TAG_ENCODED + "/currentwar");
+        
+        if (normalWarDetails == null) {
+            LOGGER.info("Could not fetch war data.");
+            return;
+        }
+        
+        JSONObject warJson = new JSONObject(normalWarDetails);
+        String state = warJson.optString("state", "");
+        
+        if (state.equals("notInWar")) {
+            LOGGER.info("Clan is not currently in a war.");
+            resetWarTracking();
+            return;
+        }
+        
+        if (state.equals("preparation")) {
+            LOGGER.info("War is in preparation phase. Waiting for battle day.");
+            return;
+        }
+        
+        if (state.equals("warEnded")) {
+            LOGGER.info("War has ended.");
+            resetWarTracking();
+            return;
+        }
+        
+        if (!state.equals("inWar")) {
+            LOGGER.info("Unknown war state: " + state);
+            return;
+        }
+        
+        // We're in war - check timing
+        String endTimeStr = warJson.optString("endTime", "");
+        if (endTimeStr.isEmpty()) {
+            LOGGER.warning("War end time not available.");
+            return;
+        }
+        
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSSX");
+        Instant warEndTime = OffsetDateTime.parse(endTimeStr, formatter).toInstant();
+        Instant now = Instant.now();
+        long timeUntilEnd = warEndTime.toEpochMilli() - now.toEpochMilli();
+        
+        // Check if war end time changed
+        if (lastKnownWarEndTime != null && !lastKnownWarEndTime.equals(warEndTime)) {
+            LOGGER.info("War end time changed from " + lastKnownWarEndTime + " to " + warEndTime);
+            finalFetchDone = false; // Reset final fetch flag
+        }
+        lastKnownWarEndTime = warEndTime;
+        
+        long hoursRemaining = timeUntilEnd / (1000 * 60 * 60);
+        long minutesRemaining = (timeUntilEnd / (1000 * 60)) % 60;
+        LOGGER.info("War in progress. Time remaining: " + hoursRemaining + "h " + minutesRemaining + "m");
+        
+        // Only fetch if within last 6 hours
+        if (timeUntilEnd > SIX_HOURS_MS) {
+            LOGGER.info("More than 6 hours remaining. Skipping data fetch.");
+            return;
+        }
+        
+        // Within last 6 hours - fetch data
+        LOGGER.info("Within last 6 hours of war. Fetching data...");
+        processNormalWar(warJson);
+        
+        // Final fetch 5 minutes before end
+        if (timeUntilEnd <= FIVE_MINUTES_MS && !finalFetchDone) {
+            LOGGER.info("Less than 5 minutes remaining! Final data fetch...");
+            processNormalWar(warJson);
+            finalFetchDone = true;
+        }
+    }
+    
+    private void resetWarTracking() {
+        lastKnownWarEndTime = null;
+        finalFetchDone = false;
+    }
+    
+    private void processCWL(String clanWarLeagueDetails) {
+        JSONObject allJsonObject = new JSONObject(clanWarLeagueDetails);
+        JSONArray clansJson = allJsonObject.getJSONArray("clans");
+        Clan clan = null;
 
-            for (int i = 0; i < clansJson.length(); i++) {
-                JSONObject clanJson = clansJson.getJSONObject(i);
-                if (!clanJson.getString("tag").equals(CLAN_TAG)) {
-                    continue;
-                }
-                clan = new Clan(clanJson.getString("tag"), clanJson.getString("name"), clanJson.getInt("clanLevel"));
-                storePlayers(clan, clanJson);
+        for (int i = 0; i < clansJson.length(); i++) {
+            JSONObject clanJson = clansJson.getJSONObject(i);
+            if (!clanJson.getString("tag").equals(CLAN_TAG)) {
+                continue;
             }
+            clan = new Clan(clanJson.getString("tag"), clanJson.getString("name"), clanJson.getInt("clanLevel"));
+            storePlayers(clan, clanJson);
+        }
 
-            JSONArray rounds = allJsonObject.getJSONArray("rounds");
-            for (int i = 0; i < rounds.length(); i++) {
-                JSONObject round = rounds.getJSONObject(i);
-                JSONArray warTags = round.getJSONArray("warTags");
-                for (int j = 0; j < warTags.length(); j++) {
-                    getWarDetailResponse(i, warTags, j);
+        JSONArray rounds = allJsonObject.getJSONArray("rounds");
+        for (int i = 0; i < rounds.length(); i++) {
+            JSONObject round = rounds.getJSONObject(i);
+            JSONArray warTags = round.getJSONArray("warTags");
+            for (int j = 0; j < warTags.length(); j++) {
+                processCWLWar(i, warTags, j);
+            }
+        }
+        
+        LOGGER.info("CWL data fetch completed!");
+    }
+    
+    private void processCWLWar(int roundIndex, JSONArray warTags, int warIndex) {
+        String warTag = warTags.getString(warIndex);
+        if (warTag.equals("#0")) return;
+        
+        String warDetailEndpoint = "https://api.clashofclans.com/v1/clanwarleagues/wars/"
+                + warTag.replace("#", "%23");
+        String warDetailResponse = fetchDataFromClashAPI(warDetailEndpoint);
+        
+        if (warDetailResponse == null) {
+            LOGGER.warning("Failed to fetch CWL war details for tag: " + warTag);
+            return;
+        }
+        
+        JSONObject warDetail = new JSONObject(warDetailResponse);
+        String state = warDetail.optString("state", "");
+        
+        // Only process if in war or war ended (to capture final attacks)
+        if (!state.equals("inWar") && !state.equals("warEnded")) {
+            return;
+        }
+        
+        // For active wars, check if within last 6 hours
+        if (state.equals("inWar")) {
+            String endTimeStr = warDetail.optString("endTime", "");
+            if (!endTimeStr.isEmpty()) {
+                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSSX");
+                Instant warEndTime = OffsetDateTime.parse(endTimeStr, formatter).toInstant();
+                long timeUntilEnd = warEndTime.toEpochMilli() - Instant.now().toEpochMilli();
+                
+                if (timeUntilEnd > SIX_HOURS_MS) {
+                    LOGGER.info("CWL Round " + (roundIndex + 1) + " has more than 6 hours. Skipping.");
+                    return;
                 }
             }
         }
-
-        LOGGER.info("War data fetch completed!");
+        
+        storeWarData(roundIndex, warTag, warDetail);
     }
 
     private void processNormalWar(JSONObject warJson) {
@@ -176,21 +297,6 @@ public class ScheduleWarDataSaver {
             LOGGER.info("Saved " + newPlayersCount + " new players to database.");
         } else {
             LOGGER.info("No new players to save.");
-        }
-    }
-
-    private void getWarDetailResponse(int i, JSONArray warTags, int j) {
-        String warTag = warTags.getString(j);
-        if (warTag.equals("#0"))
-            return;
-        String warDetailEndpoint = "https://api.clashofclans.com/v1/clanwarleagues/wars/"
-                + warTag.replace("#", "%23");
-        String warDetailResponse = fetchDataFromClashAPI(warDetailEndpoint);
-        if (warDetailResponse != null) {
-            JSONObject warDetail = new JSONObject(warDetailResponse);
-            storeWarData(i, warTag, warDetail);
-        } else {
-            LOGGER.warning("Failed to fetch war details for tag: " + warTag);
         }
     }
 
