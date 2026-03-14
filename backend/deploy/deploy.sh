@@ -9,12 +9,19 @@ APP_NAME="coc-backend"
 APP_DIR="/opt/$APP_NAME"
 JAR_NAME="clash-of-clans-backend-1.0.0.jar"
 
-echo "=== Installing Java 17 ==="
+echo "=== Installing Java 17 and Maven ==="
 if ! command -v java &> /dev/null; then
     sudo apt-get update -y
     sudo apt-get install -y openjdk-17-jdk
 fi
+if ! command -v mvn &> /dev/null; then
+    sudo apt-get install -y maven
+fi
 java -version
+mvn -version
+
+echo "=== Building JAR ==="
+mvn clean package -DskipTests -q
 
 echo "=== Creating application directory ==="
 sudo mkdir -p $APP_DIR
@@ -52,10 +59,10 @@ sudo cp deploy/coc-backend.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable $APP_NAME
 
-echo "=== Deployment complete ==="
-echo ""
-echo "Next steps:"
-echo "1. Edit $APP_DIR/.env with your database credentials"
-echo "2. Start the service: sudo systemctl start $APP_NAME"
-echo "3. Check status: sudo systemctl status $APP_NAME"
-echo "4. View logs: sudo journalctl -u $APP_NAME -f"
+echo "=== Starting service ==="
+sudo systemctl start $APP_NAME
+sleep 3
+sudo systemctl status $APP_NAME
+
+echo "=== Deployment complete! ==="
+echo "View logs: sudo journalctl -u $APP_NAME -f"
