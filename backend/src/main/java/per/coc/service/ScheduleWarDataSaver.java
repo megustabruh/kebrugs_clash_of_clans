@@ -33,12 +33,9 @@ public class ScheduleWarDataSaver {
     
     private static final String CLAN_TAG = "#2R08P0L9";
     private static final String CLAN_TAG_ENCODED = "%232R08P0L9";
-    private static final long SIX_HOURS_MS = 6 * 60 * 60 * 1000;
-    private static final long FIVE_MINUTES_MS = 5 * 60 * 1000;
     
     // Track war end time to detect changes
     private Instant lastKnownWarEndTime = null;
-    private boolean finalFetchDone = false;
     
     @Value("${coc.api.token}")
     private String token;
@@ -162,7 +159,6 @@ public class ScheduleWarDataSaver {
         // Check if war end time changed
         if (lastKnownWarEndTime != null && !lastKnownWarEndTime.equals(warEndTime)) {
             LOGGER.info("War end time changed from " + lastKnownWarEndTime + " to " + warEndTime);
-            finalFetchDone = false; // Reset final fetch flag
         }
         lastKnownWarEndTime = warEndTime;
         
@@ -170,27 +166,13 @@ public class ScheduleWarDataSaver {
         long minutesRemaining = (timeUntilEnd / (1000 * 60)) % 60;
         LOGGER.info("War in progress. Time remaining: " + hoursRemaining + "h " + minutesRemaining + "m");
         
-        // Only fetch if within last 6 hours
-        if (timeUntilEnd > SIX_HOURS_MS) {
-            LOGGER.info("More than 6 hours remaining. Skipping data fetch.");
-            return;
-        }
-        
-        // Within last 6 hours - fetch data
-        LOGGER.info("Within last 6 hours of war. Fetching data...");
+        // Fetch data every 10 minutes during war
+        LOGGER.info("Fetching war data...");
         processNormalWar(warJson);
-        
-        // Final fetch 5 minutes before end
-        if (timeUntilEnd <= FIVE_MINUTES_MS && !finalFetchDone) {
-            LOGGER.info("Less than 5 minutes remaining! Final data fetch...");
-            processNormalWar(warJson);
-            finalFetchDone = true;
-        }
     }
     
     private void resetWarTracking() {
         lastKnownWarEndTime = null;
-        finalFetchDone = false;
     }
     
     private void processCWL(String clanWarLeagueDetails) {
