@@ -222,21 +222,6 @@ public class ScheduleWarDataSaver {
             return;
         }
         
-        // For active wars, check if within last 6 hours
-        if (state.equals("inWar")) {
-            String endTimeStr = warDetail.optString("endTime", "");
-            if (!endTimeStr.isEmpty()) {
-                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSSX");
-                Instant warEndTime = OffsetDateTime.parse(endTimeStr, formatter).toInstant();
-                long timeUntilEnd = warEndTime.toEpochMilli() - Instant.now().toEpochMilli();
-                
-                if (timeUntilEnd > SIX_HOURS_MS) {
-                    LOGGER.info("CWL Round " + (roundIndex + 1) + " has more than 6 hours. Skipping.");
-                    return;
-                }
-            }
-        }
-        
         storeWarData(roundIndex, warTag, warDetail);
     }
 
