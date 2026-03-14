@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Clash of Clans Backend - EC2 Deployment Script
-# Run this script on your EC2 instance
+# Run this script on your EC2 instance (Ubuntu)
 
 set -e
 
@@ -9,16 +9,26 @@ APP_NAME="coc-backend"
 APP_DIR="/opt/$APP_NAME"
 JAR_NAME="clash-of-clans-backend-1.0.0.jar"
 
-echo "=== Installing dependencies ==="
-sudo yum update -y || sudo apt-get update -y
-sudo yum install -y java-17-amazon-corretto || sudo apt-get install -y openjdk-17-jdk
+echo "=== Installing Java 17 ==="
+if ! command -v java &> /dev/null; then
+    sudo apt-get update -y
+    sudo apt-get install -y openjdk-17-jdk
+fi
+java -version
 
 echo "=== Creating application directory ==="
 sudo mkdir -p $APP_DIR
 sudo chown $USER:$USER $APP_DIR
 
 echo "=== Copying JAR file ==="
-cp target/$JAR_NAME $APP_DIR/
+if [ -f "target/$JAR_NAME" ]; then
+    cp target/$JAR_NAME $APP_DIR/
+elif [ -f "$JAR_NAME" ]; then
+    cp $JAR_NAME $APP_DIR/
+else
+    echo "ERROR: JAR file not found. Build with 'mvn package -DskipTests' first."
+    exit 1
+fi
 
 echo "=== Creating environment file ==="
 if [ ! -f $APP_DIR/.env ]; then
@@ -31,11 +41,10 @@ DB_PASSWORD=your_db_password
 # Server Configuration
 SERVER_PORT=8081
 
-# Clash of Clans API Token (get from https://developer.clashofclans.com/)
-# IMPORTANT: Generate a new token with your EC2's public IP
-COC_API_TOKEN=your_coc_api_token_here
+# Clash of Clans API Token (IP: 65.2.82.60)
+COC_API_TOKEN=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjQ2MWI5ZjM0LWYwYjItNDVhYi05Y2MxLWZmODk3NmM2ZDIzNSIsImlhdCI6MTc3MzQ3OTc4Nywic3ViIjoiZGV2ZWxvcGVyLzkzM2UwN2IwLWMzYmItNWY2Zi1iYjRiLWZmZjYzMzI4NzZkNyIsInNjb3BlcyI6WyJjbGFzaCJdLCJsaW1pdHMiOlt7InRpZXIiOiJkZXZlbG9wZXIvc2lsdmVyIiwidHlwZSI6InRocm90dGxpbmcifSx7ImNpZHJzIjpbIjY1LjIuODIuNjAiXSwidHlwZSI6ImNsaWVudCJ9XX0.WW4SrYWdIK_NSIsZGQ2WD1-2ACQzcbsW5s_J3tyw1e3Y4HSTbRzRU0ZbAST0KJdxw5HrkRSfLYvJIYdkejT5uQ
 EOF
-    echo "Created .env file at $APP_DIR/.env - PLEASE UPDATE WITH YOUR VALUES"
+    echo "Created .env file at $APP_DIR/.env - PLEASE UPDATE DB VALUES"
 fi
 
 echo "=== Installing systemd service ==="
@@ -46,7 +55,7 @@ sudo systemctl enable $APP_NAME
 echo "=== Deployment complete ==="
 echo ""
 echo "Next steps:"
-echo "1. Edit $APP_DIR/.env with your database and API credentials"
+echo "1. Edit $APP_DIR/.env with your database credentials"
 echo "2. Start the service: sudo systemctl start $APP_NAME"
 echo "3. Check status: sudo systemctl status $APP_NAME"
 echo "4. View logs: sudo journalctl -u $APP_NAME -f"

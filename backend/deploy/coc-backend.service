@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=ec2-user
+User=ubuntu
 WorkingDirectory=/opt/coc-backend
 EnvironmentFile=/opt/coc-backend/.env
 ExecStart=/usr/bin/java -jar /opt/coc-backend/clash-of-clans-backend-1.0.0.jar
