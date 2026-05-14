@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Clash of Clans Backend - EC2 Deployment Script
-# Run this script on your EC2 instance (Ubuntu)
+# Run this script on EC2 instance (Ubuntu)
 
 set -e
 
@@ -46,7 +46,7 @@ DB_USERNAME=your_db_user
 DB_PASSWORD=your_db_password
 
 # Server Configuration
-SERVER_PORT=8081
+SERVER_PORT=8085
 
 # Clash of Clans API Token (IP: 15.206.29.16)
 COC_API_TOKEN=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjYwZTc5MDMxLTgxYWItNGI3Ni1hNjc0LTU4ZjY0YzU1YTc3NyIsImlhdCI6MTc3ODc3ODA4Nywic3ViIjoiZGV2ZWxvcGVyLzkzM2UwN2IwLWMzYmItNWY2Zi1iYjRiLWZmZjYzMzI4NzZkNyIsInNjb3BlcyI6WyJjbGFzaCJdLCJsaW1pdHMiOlt7InRpZXIiOiJkZXZlbG9wZXIvc2lsdmVyIiwidHlwZSI6InRocm90dGxpbmcifSx7ImNpZHJzIjpbIjE1LjIwNi4yOS4xNiJdLCJ0eXBlIjoiY2xpZW50In1dfQ.v-yQJYjJh49fQbvR_ZpbgpP_Ix_qyMd670EabqLobQqJaDc1PQeazK-oRVB-PzXHpAUecMdmOEnjtpoCuTz1JQ

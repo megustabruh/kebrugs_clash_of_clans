@@ -20,6 +20,8 @@ The CoC API token is IP-restricted. You must:
 cd backend
 mvn clean package -DskipTests
 ```
+or 
+./run.sh
 
 ### 2. Copy files to EC2
 
