@@ -51,11 +51,21 @@ sudo nano /opt/coc-backend/.env
 
 Update these values:
 ```
-DB_URL=jdbc:mysql://your-rds-endpoint:3306/personal
-DB_USERNAME=your_username
-DB_PASSWORD=your_password
+DB_URL=jdbc:mysql://database-1.c326eq2kmmi5.ap-southeast-2.rds.amazonaws.com:3306/personal?sslMode=VERIFY_IDENTITY
+DB_USERNAME=admin
+DB_PASSWORD=<your RDS password>
 COC_API_TOKEN=your_new_token_with_ec2_ip
 ```
+
+`personal` is the database name used by the current application configuration; replace it in `DB_URL` if the target database has a different name. Do not commit the RDS password. The `sslMode=VERIFY_IDENTITY` setting encrypts the connection and verifies the RDS endpoint hostname. The MySQL CLI command can be used to test access from the EC2 instance; keep the AWS CA bundle available for that test:
+
+```bash
+mysql -h database-1.c326eq2kmmi5.ap-southeast-2.rds.amazonaws.com \
+  -P 3306 -u admin -p \
+  --ssl-mode=VERIFY_IDENTITY --ssl-ca=./global-bundle.pem
+```
+
+The Java runtime must trust the Amazon RDS CA for the JDBC TLS verification to succeed. If the service reports a certificate trust error, configure the JVM truststore with the relevant AWS RDS CA certificate before restarting the service.
 
 ### 5. Start the service
 

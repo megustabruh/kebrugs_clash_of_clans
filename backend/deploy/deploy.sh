@@ -41,9 +41,9 @@ echo "=== Creating environment file ==="
 if [ ! -f $APP_DIR/.env ]; then
     cat > $APP_DIR/.env << 'EOF'
 # Database Configuration
-DB_URL=jdbc:mysql://YOUR_RDS_ENDPOINT:3306/personal
-DB_USERNAME=your_db_user
-DB_PASSWORD=your_db_password
+DB_URL=jdbc:mysql://database-1.c326eq2kmmi5.ap-southeast-2.rds.amazonaws.com:3306/personal?sslMode=VERIFY_IDENTITY
+DB_USERNAME=admin
+DB_PASSWORD=
 
 # Server Configuration
 SERVER_PORT=8085
