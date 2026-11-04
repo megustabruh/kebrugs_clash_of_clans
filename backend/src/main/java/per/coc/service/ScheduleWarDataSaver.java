@@ -21,12 +21,10 @@ import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
 import per.coc.entity.Attack;
-import per.coc.entity.FetchLog;
 import per.coc.entity.Player;
 import per.coc.entity.War;
 import per.coc.model.Clan;
 import per.coc.model.Status;
-import per.coc.repository.FetchLogRepository;
 
 @Service
 public class ScheduleWarDataSaver {
@@ -52,17 +50,6 @@ public class ScheduleWarDataSaver {
     @Autowired
     private AttackService attackService;
     
-    @Autowired
-    private FetchLogRepository fetchLogRepository;
-    
-    // Tracking counters for logging
-    private int currentRunAttacks = 0;
-    private int currentRunPlayers = 0;
-    private int currentRunWars = 0;
-    private String currentWarType = "NONE";
-    private String currentWarState = "";
-    private String currentWarTag = "";
-
     private String fetchDataFromClashAPI(String endpoint) {
         return fetchDataFromClashAPI(endpoint, true);
     }
@@ -119,15 +106,6 @@ public class ScheduleWarDataSaver {
     private void checkAndFetchWarData(boolean forceFetch) {
         LOGGER.info("Checking war status...");
         
-        // Reset counters for this run
-        currentRunAttacks = 0;
-        currentRunPlayers = 0;
-        currentRunWars = 0;
-        currentWarType = "NONE";
-        currentWarState = "";
-        currentWarTag = "";
-        LocalDateTime runTime = LocalDateTime.now();
-        
         // First try CWL (404 is expected if not in CWL)
         String clanWarLeagueDetails = fetchDataFromClashAPI(
                 "https://api.clashofclans.com/v1/clans/" + CLAN_TAG_ENCODED + "/currentwar/leaguegroup", false);
@@ -135,9 +113,7 @@ public class ScheduleWarDataSaver {
         if (clanWarLeagueDetails != null) {
             // CWL is active - process it
             LOGGER.info("CWL detected, processing...");
-            currentWarType = "CWL";
             processCWL(clanWarLeagueDetails);
-            saveFetchLog(runTime, "CWL data fetch completed", true);
             return;
         }
         
@@ -147,7 +123,6 @@ public class ScheduleWarDataSaver {
         
         if (normalWarDetails == null) {
             LOGGER.info("Could not fetch war data.");
-            saveFetchLog(runTime, "Could not fetch war data", false);
             return;
         }
         
@@ -156,24 +131,18 @@ public class ScheduleWarDataSaver {
         
         if (state.equals("notInWar")) {
             LOGGER.info("Clan is not currently in a war.");
-            currentWarState = "notInWar";
             resetWarTracking();
-            saveFetchLog(runTime, "Clan is not in war", true);
             return;
         }
         
         if (state.equals("preparation")) {
             LOGGER.info("War is in preparation phase. Waiting for battle day.");
-            currentWarState = "preparation";
-            saveFetchLog(runTime, "War in preparation phase", true);
             return;
         }
         
         if (state.equals("warEnded")) {
             LOGGER.info("War has ended.");
-            currentWarState = "warEnded";
             resetWarTracking();
-            saveFetchLog(runTime, "War has ended", true);
             return;
         }
         
@@ -211,25 +180,12 @@ public class ScheduleWarDataSaver {
         // Fetch war data
         String reason = inLastHour ? "Last hour of war" : "Hourly fetch";
         LOGGER.info(reason + " - Fetching war data...");
-        currentWarType = "NORMAL";
-        currentWarState = "inWar";
         processNormalWar(warJson);
         lastDataFetchTime = now;
-        saveFetchLog(runTime, reason + ". Time remaining: " + hoursRemaining + "h " + minutesRemaining + "m", true);
     }
     
     private void resetWarTracking() {
         lastDataFetchTime = null;
-    }
-    
-    private void saveFetchLog(LocalDateTime runTime, String message, boolean success) {
-        try {
-            FetchLog log = new FetchLog(runTime, currentWarType, currentWarState, currentWarTag,
-                    currentRunAttacks, currentRunPlayers, currentRunWars, message, success);
-            fetchLogRepository.save(log);
-        } catch (Exception e) {
-            LOGGER.warning("Failed to save fetch log: " + e.getMessage());
-        }
     }
     
     private void processCWL(String clanWarLeagueDetails) {
@@ -317,7 +273,6 @@ public class ScheduleWarDataSaver {
 
         if (newPlayersCount > 0) {
             LOGGER.info("Saved " + newPlayersCount + " new players.");
-            currentRunPlayers += newPlayersCount;
         }
     }
 
@@ -347,11 +302,8 @@ public class ScheduleWarDataSaver {
                 War war = new War(warTag, startTime, endTime, totalAttacks, averageDestruction, totalStars, clanLevel);
                 warService.saveWar(war);
                 LOGGER.info("Saved new war: " + warTag);
-                currentRunWars++;
             }
             
-            currentWarTag = warTag;
-
             // Save players from war members
             int newPlayersCount = 0;
             int newAttacksCount = 0;
@@ -385,12 +337,10 @@ public class ScheduleWarDataSaver {
             
             if (newPlayersCount > 0) {
                 LOGGER.info("Saved " + newPlayersCount + " new players.");
-                currentRunPlayers += newPlayersCount;
             }
 
             if (newAttacksCount > 0) {
                 LOGGER.info("Saved " + newAttacksCount + " new attacks. Stars: " + stars + ", Destruction: " + destruction);
-                currentRunAttacks += newAttacksCount;
             }
         }
     }
