@@ -119,8 +119,18 @@ Ensure your EC2 security group allows:
 - Generate a new token with EC2's public IP
 
 ### Database connection failed
-- Check security group allows EC2 → RDS on port 3306
-- Verify RDS is publicly accessible or in same VPC
+- `Access denied for user 'root'@'<EC2 address>'` means MySQL was reached but rejected authentication. The later Hibernate dialect error is a consequence of that failed connection.
+- Check `/opt/coc-backend/.env` and set `DB_USERNAME` and `DB_PASSWORD` to the RDS application user's credentials (the deployment example uses `admin`); do not use the MySQL `root` account.
+- Check security group allows EC2 → RDS on port 3306 and verify the configured user is allowed to connect from the EC2 host.
+- Verify credentials interactively without putting the password in shell history:
+
+  ```bash
+  mysql -h <RDS endpoint> -P 3306 -u <DB_USERNAME> -p \
+    --ssl-mode=VERIFY_IDENTITY --ssl-ca=./global-bundle.pem
+  ```
+
+- Restart the service after correcting `.env`: `sudo systemctl restart coc-backend`.
+- The deployment script preserves an existing `.env`; it now stops with an actionable error if `DB_USERNAME=root` or `DB_PASSWORD` is empty.
 
 ### Service won't start
 - Check logs: `sudo journalctl -u coc-backend -n 100`

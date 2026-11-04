@@ -54,6 +54,24 @@ EOF
     echo "Created .env file at $APP_DIR/.env - PLEASE UPDATE DB VALUES"
 fi
 
+if ! grep -Eq '^[[:space:]]*DB_USERNAME=[^[:space:]#]+[[:space:]]*$' "$APP_DIR/.env"; then
+    echo "ERROR: DB_USERNAME is empty or missing in $APP_DIR/.env." >&2
+    echo "Set it to the configured RDS application user, then rerun this script." >&2
+    exit 1
+fi
+
+if grep -Eq '^[[:space:]]*DB_USERNAME=root[[:space:]]*$' "$APP_DIR/.env"; then
+    echo "ERROR: DB_USERNAME=root is not suitable for the RDS deployment." >&2
+    echo "Set DB_USERNAME to the configured RDS application user in $APP_DIR/.env, then rerun this script." >&2
+    exit 1
+fi
+
+if ! grep -Eq '^[[:space:]]*DB_PASSWORD=.+$' "$APP_DIR/.env"; then
+    echo "ERROR: DB_PASSWORD is empty or missing in $APP_DIR/.env." >&2
+    echo "Set it to the configured RDS application user's password, then rerun this script." >&2
+    exit 1
+fi
+
 echo "=== Installing systemd service ==="
 sudo cp deploy/coc-backend.service /etc/systemd/system/
 sudo systemctl daemon-reload
